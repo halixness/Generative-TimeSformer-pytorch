@@ -1,9 +1,3 @@
-'''
-    Idea:
-        - Prevedere K classification tokens equivalenti a K futuri frames
-        - Effettua de-embedding per ottenere i frames
-        - computati tot frames futuri
-'''
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
