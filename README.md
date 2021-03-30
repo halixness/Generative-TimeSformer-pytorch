@@ -2,7 +2,7 @@
 
 ## Generative TimeSformer - Pytorch
 This fork attemps to extend the purpose of TimeSformer to video generation for future frame prediction. 
-The purpose is solely educative, the experiment may end with failure.
+The purpose is solely educative, the experiment may end up with failure.
 
 ## TimeSformer - Pytorch
 
