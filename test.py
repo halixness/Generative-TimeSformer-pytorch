@@ -7,7 +7,6 @@ model = TimeSformer(
     patch_size = 16,
     num_frames = 8,
     num_target_frames = 4,
-    num_classes = 10,
     depth = 12,
     heads = 8,
     dim_head =  64,
@@ -17,4 +16,4 @@ model = TimeSformer(
 )
 
 video = torch.randn(2, 8, 3, 224, 224) # (batch x frames x channels x height x width)
-pred = model(video) # (2, 10)
+pred = model(video) # (2, 4, 3, 224, 224)

@@ -124,7 +124,6 @@ class TimeSformer(nn.Module):
         dim,
         num_frames,
         num_target_frames = 4,
-        num_classes,
         image_size = 224,
         patch_size = 16,
         channels = 3,
