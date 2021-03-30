@@ -1,7 +1,14 @@
+'''
+    Idea:
+        - Prevedere K classification tokens equivalenti a K futuri frames
+        - Effettua de-embedding per ottenere i frames
+        - computati tot frames futuri
+'''
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 from einops import rearrange, repeat
+import math
 
 # classes
 
@@ -49,7 +56,8 @@ class Attention(nn.Module):
         dim,
         dim_head = 64,
         heads = 8,
-        dropout = 0.
+        dropout = 0.,
+        num_tokens = 1,
     ):
         super().__init__()
         self.heads = heads
@@ -61,6 +69,8 @@ class Attention(nn.Module):
             nn.Linear(inner_dim, dim),
             nn.Dropout(dropout)
         )
+        
+        self.num_tokens = num_tokens
 
     def forward(self, x, einops_from, einops_to, **einops_dims):
         h = self.heads
@@ -69,18 +79,23 @@ class Attention(nn.Module):
 
         q *= self.scale
 
-        # splice out classification token at index 1
-        (cls_q, q_), (cls_k, k_), (cls_v, v_) = map(lambda t: (t[:, 0:1], t[:, 1:]), (q, k, v))
+        # splitting out added target tokens
+        (cls_q, q_), (cls_k, k_), (cls_v, v_) = map(lambda t: (t[:, 0:self.num_tokens], t[:, self.num_tokens:]), (q, k, v))
 
-        # let classification token attend to key / values of all patches across time and space
+        # target tokens attend all the tokens in sequence
         cls_out = attn(cls_q, k, v)
 
         # rearrange across time or space
+        # 'b (f n) d' -> '(b n) f d'
+        # 'b (f n) d' -> '(b f) n d'
+        # time = batch, frame * num token, dim -> batch * num patch, frame, dim -> iters frame
+        # space = batch, frame * num token, dim -> batch * num frame, patch, dim -> iters patch
         q_, k_, v_ = map(lambda t: rearrange(t, f'{einops_from} -> {einops_to}', **einops_dims), (q_, k_, v_))
 
         # expand cls token keys and values across time or space and concat
         r = q_.shape[0] // cls_k.shape[0]
-        cls_k, cls_v = map(lambda t: repeat(t, 'b () d -> (b r) () d', r = r), (cls_k, cls_v))
+
+        cls_k, cls_v = map(lambda t: repeat(t, 'b t d -> (b r) t d', r = r), (cls_k, cls_v))
 
         k_ = torch.cat((cls_k, k_), dim = 1)
         v_ = torch.cat((cls_v, v_), dim = 1)
@@ -108,6 +123,7 @@ class TimeSformer(nn.Module):
         *,
         dim,
         num_frames,
+        num_target_frames = 4,
         num_classes,
         image_size = 224,
         patch_size = 16,
@@ -116,31 +132,40 @@ class TimeSformer(nn.Module):
         heads = 8,
         dim_head = 64,
         attn_dropout = 0.,
-        ff_dropout = 0.
+        ff_dropout = 0.,
     ):
         super().__init__()
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
+
+        self.dim = dim
 
         num_patches = (image_size // patch_size) ** 2
         num_positions = num_frames * num_patches
         patch_dim = channels * patch_size ** 2
 
+        self.num_tokens = num_target_frames
+        self.num_target_patches = self.num_tokens * num_patches
+
         self.patch_size = patch_size
         self.to_patch_embedding = nn.Linear(patch_dim, dim)
-        self.pos_emb = nn.Embedding(num_positions + 1, dim)
-        self.cls_token = nn.Parameter(torch.randn(1, dim))
+
+        # extend positional embedding, define the target tokens
+        self.pos_emb = nn.Embedding(num_positions + self.num_target_patches, dim)
+        self.target_tokens = nn.Parameter(torch.randn(self.num_target_patches, dim))
 
         self.layers = nn.ModuleList([])
         for _ in range(depth):
+
+            # time_attn, space_attn, ff
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, dim_head = dim_head, heads = heads, dropout = attn_dropout)),
-                PreNorm(dim, Attention(dim, dim_head = dim_head, heads = heads, dropout = attn_dropout)),
+                PreNorm(dim, Attention(dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_tokens = self.num_target_patches)),
+                PreNorm(dim, Attention(dim, dim_head = dim_head, heads = heads, dropout = attn_dropout, num_tokens = self.num_target_patches)),
                 PreNorm(dim, FeedForward(dim, dropout = ff_dropout))
             ]))
 
-        self.to_out = nn.Sequential(
+        self.to_dembedded_out = nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, num_classes)
+            nn.Linear(dim, patch_dim)
         )
 
     def forward(self, video):
@@ -148,18 +173,26 @@ class TimeSformer(nn.Module):
         assert h % p == 0 and w % p == 0, f'height {h} and width {w} of video must be divisible by the patch size {p}'
 
         n = (h // p) * (w // p)
-
+        
         video = rearrange(video, 'b f c (h p1) (w p2) -> b (f h w) (p1 p2 c)', p1 = p, p2 = p)
+
+        # from patch size to embedding size
         tokens = self.to_patch_embedding(video)
 
-        cls_token = repeat(self.cls_token, 'n d -> b n d', b = b)
-        x =  torch.cat((cls_token, tokens), dim = 1)
+        target_tokens = repeat(self.target_tokens, 'n d -> b n d', b = b)
+        x =  torch.cat((target_tokens, tokens), dim = 1) 
         x += self.pos_emb(torch.arange(x.shape[1], device = device))
 
         for (time_attn, spatial_attn, ff) in self.layers:
-            x = time_attn(x, 'b (f n) d', '(b n) f d', n = n) + x
-            x = spatial_attn(x, 'b (f n) d', '(b f) n d', f = f) + x
+            x = time_attn(x, 'b (f n) d', '(b n) f d', n = n) + x # 1 patch over N frames
+            x = spatial_attn(x, 'b (f n) d', '(b f) n d', f = f) + x # N patches for 1 frame
             x = ff(x) + x
+            break
 
-        cls_token = x[:, 0]
-        return self.to_out(cls_token)
+        # out_tokens <- num_target_frames * num_patches
+        out_tokens = x[:, 0:self.num_target_patches]
+
+        # embed dim -> original patch dim
+        out_tokens = self.to_dembedded_out(out_tokens)
+
+        return out_tokens.view(b, self.num_tokens, 3, h, w)
