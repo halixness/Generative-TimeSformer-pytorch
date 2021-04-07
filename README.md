@@ -15,9 +15,9 @@ Thus, the idea is to define `N` tokens equal to `frames * patches_per_frame`, wh
 Futher experiments will determine whether this solution scales to generate videos.
 
 ## Experiments
-[] Training on moving MNIST
-[] Training on KTH Actions
-[] Training on a custom video dataset
+- [ ] Training on moving MNIST
+- [ ] Training on KTH Actions
+- [ ] Training on a custom video dataset
 
 ## TimeSformer - Pytorch
 
@@ -36,6 +36,8 @@ model = TimeSformer(
     image_size = 224,
     patch_size = 16,
     num_frames = 8,
+    channels = 3,
+    out_channels = 1,
     num_target_frames = 4
     depth = 12,
     heads = 8,
@@ -45,7 +47,7 @@ model = TimeSformer(
 )
 
 video = torch.randn(2, 8, 3, 224, 224) # (batch x frames x channels x height x width)
-pred = model(video) # (2, 4, 3, 224, 224)
+pred = model(video) # (2, 4, 1, 224, 224)
 ```
 
 ## Citations
