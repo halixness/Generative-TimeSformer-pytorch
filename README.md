@@ -2,7 +2,7 @@
 
 ## Generative TimeSformer - Pytorch
 This fork attemps to extend the purpose of TimeSformer to video generation for future frame prediction. 
-The purpose is solely educative, the experiment may end up with failure.
+The purpose is solely educative and experimental.
 
 ### The Idea
 From the principle underlying in TimeSformer:
@@ -15,7 +15,9 @@ Thus, the idea is to define `N` tokens equal to `frames * patches_per_frame`, wh
 Futher experiments will determine whether this solution scales to generate videos.
 
 ## Experiments
-Coming soon.
+[] Training on moving MNIST
+[] Training on KTH Actions
+[] Training on a custom video dataset
 
 ## TimeSformer - Pytorch
 
