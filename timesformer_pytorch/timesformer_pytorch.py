@@ -121,6 +121,7 @@ class TimeSformer(nn.Module):
         image_size = 224,
         patch_size = 16,
         channels = 3,
+        out_channels = 3,
         depth = 12,
         heads = 8,
         dim_head = 64,
@@ -131,10 +132,12 @@ class TimeSformer(nn.Module):
         assert image_size % patch_size == 0, 'Image dimensions must be divisible by the patch size.'
 
         self.dim = dim
+        self.out_channels = out_channels
 
         num_patches = (image_size // patch_size) ** 2
         num_positions = num_frames * num_patches
         patch_dim = channels * patch_size ** 2
+        out_patch_dim = out_channels * patch_size ** 2
 
         self.num_tokens = num_target_frames
         self.num_target_patches = self.num_tokens * num_patches
@@ -158,7 +161,7 @@ class TimeSformer(nn.Module):
 
         self.to_dembedded_out = nn.Sequential(
             nn.LayerNorm(dim),
-            nn.Linear(dim, patch_dim)
+            nn.Linear(dim, out_patch_dim)
         )
 
     def forward(self, video):
@@ -188,4 +191,4 @@ class TimeSformer(nn.Module):
         # embed dim -> original patch dim
         out_tokens = self.to_dembedded_out(out_tokens)
 
-        return out_tokens.view(b, self.num_tokens, 3, h, w)
+        return out_tokens.view(b, self.num_tokens, self.out_channels, h, w)
